@@ -10,9 +10,7 @@
 #pragma comment(lib, "libeay32.lib")
 #pragma comment(lib, "ssleay32.lib")
 #define MAX_THREADS_PER_BLOCK 1
-
-int main(void) {
-
+void in1() {
 	printf("You need to input your data,first!\n");
 	char*a = (char*)malloc(5000*sizeof(char));
 	scanf("%s", a);
@@ -42,7 +40,7 @@ int main(void) {
 	printf("GPU execute result:\n");
 	for (int i = 0; i < 20; i++) printf("%02x ", hash[i]);
 	printf("\n");
-	clock_t start3, finish3;
+	/*clock_t start3, finish3;
 	float costtime3;
 	start3= clock();
 	gpu_sha1((unsigned char*)a, strlen(a), hash);
@@ -51,7 +49,7 @@ int main(void) {
 	printf("CPU run time %f seconds\n", costtime3);
 	printf("GPU2 execute result:\n");
 	for (int i = 0; i < 20; i++) printf("%02x ", hash[i]);
-	printf("\n");
+	printf("\n");*/
 	clock_t start2, finish2;
 	float costtime2;
 	start2 = clock();//unsigned char*
@@ -63,4 +61,42 @@ int main(void) {
 	printf("OpenSSL execute result:\n");
 	for (int i = 0; i < 20; i++) printf("%02x ", hash[i]);
 	printf("\n");
+}
+int main() {
+	printf("You need to input your data,first!\n");
+	int n = 5;
+	int*ilen1 = (int*)malloc(sizeof(int) * n);
+	unsigned char**input = (unsigned char**)malloc(sizeof(unsigned char*) * n);
+	unsigned char**hash = (unsigned char**)malloc(sizeof(unsigned char*)*n);
+	char**INPUT = (char**)malloc(sizeof(char*)*n);
+	for (int i = 0; i < n; i++) {
+		input[i] = (unsigned char*)malloc(sizeof(unsigned char) * 512);
+		hash[i] = (unsigned char*)malloc(sizeof(unsigned char) * 512);
+		INPUT[i] = (char*)malloc(sizeof(char) * 1000);
+	}
+	for (int i = 0; i < n; i++) {
+		scanf("%s", INPUT[i]);
+		ilen1[i] = strlen(INPUT[i]);
+		input[i] = (unsigned char*)INPUT[i];
+	}
+	for (int i = 0; i < n; i++) {
+		sha1_cpu(input[i], ilen1[i], hash[i]);
+	}
+	//multisha1_gpu(input, ilen1, hash,n);
+	for (int i = 0; i < n; i++) {
+		for (int j = 0; j < 20; j++) {
+			printf("%02x", hash[i][j]);
+		}
+		printf("\n");
+	}
+	multisha1_gpu(input, ilen1, hash, n);
+
+	for (int i = 0; i < n; i++) {
+		for (int j = 0; j < 20; j++) {
+			printf("%02x", hash[i][j]);
+		}
+		printf("\n");
+	}
+	printf("OK\n");
+	return 0;
 }

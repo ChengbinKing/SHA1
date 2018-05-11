@@ -58,4 +58,4 @@
 
 void sha1_cpu(unsigned char *input, int ilen, unsigned char *output);
 void sha1_gpu_global1(unsigned char *input, unsigned long size, unsigned char *output, int proc);
-void gpu_sha1(unsigned char *input, int ilen, unsigned char *output);
+void multisha1_gpu(unsigned char**input, int *ilen, unsigned char**output, int n);

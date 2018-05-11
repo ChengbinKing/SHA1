@@ -1,12 +1,10 @@
-/*
-* SHA-1 CPU implementation
-*/
 #include <string.h>
 #include <stdio.h>
 #include "Common1.h"
 #include"cuda.h"
 #include "Common1.h"
 #include"device_launch_parameters.h"
+
 typedef struct {
 	unsigned long total[2];     /* number of bytes processed  */
 	unsigned long state[5];     /* intermediate digest state  */
@@ -268,17 +266,39 @@ __device__ void sha1_cpu_finish(sha1_gpu1_context *ctx, unsigned char *output)
 	PUT_UINT32_BE(ctx->state[4], output, 16);
 }
 
-
 /*
 * Execute SHA-1
 */
-__global__ void sha1_cpu1(unsigned char *input, int ilen, unsigned char *output) {
+__device__ void sha1_cpu1(unsigned char *input, int ilen, unsigned char *output) {
 	sha1_gpu1_context ctx;
 	sha1_cpu_starts(&ctx);
 	sha1_cpu_update(&ctx, input, ilen);
 	sha1_cpu_finish(&ctx, output);
 	memset(&ctx, 0, sizeof(sha1_gpu1_context));
 }
-void gpu_sha1(unsigned char *input, int ilen, unsigned char *output) {
-	sha1_cpu1<<<1,1>>>(input, ilen, output);
+//void gpu_sha1(unsigned char *input, int ilen, unsigned char *output) {
+//	sha1_cpu1<<<1,1>>>(input, ilen, output);
+//}
+__global__ void multisha1_thread(unsigned char**input,int*ilen,unsigned char**output,int n) {
+	int i = threadIdx.x;
+	if (i < n) { sha1_cpu1(input[i], ilen[i], output[i]);}
+}
+void multisha1_gpu(unsigned char**input,int *ilen,unsigned char**output,int n) {
+	int *ilen1; 
+	size_t pitch; size_t size = sizeof(unsigned char)*512;
+	unsigned char**data,**hash;
+	cudaMalloc((void**)&ilen1, sizeof(int) * n);
+
+	cudaMallocPitch((void**)&data, &pitch, size, n);
+	cudaMemset2D(data, pitch, 0, size, n);
+	cudaMallocPitch((void**)&hash, &pitch, size, n);
+	cudaMemset2D(hash, pitch, 0, size, n);
+
+	cudaMemcpy2D(data, pitch, input, size, size, n, cudaMemcpyHostToDevice);
+	cudaMemcpy(ilen1, ilen, n*sizeof(int), cudaMemcpyHostToDevice);
+	multisha1_thread <<< 1, n >>> (data, ilen1, hash, n);
+	cudaMemcpy2D(output, size, hash, pitch, size, n, cudaMemcpyDeviceToHost);
+	cudaFree((void*)data);
+	cudaFree((void*)hash);
+	cudaFree(ilen1);
 }

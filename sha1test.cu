@@ -37,23 +37,6 @@ int main() {
 		printf("%s\n", INPUT[i]);
 	}
 	BN_free(A);
-	clock_t start1, finish1;
-	float costtime;
-	start1 = clock();
-	for (int i = 0; i < n; i++) {
-		SHA1(input[i], ilen1[i], hash[i]);
-	}
-	finish1 = clock();
-	costtime = (float)(finish1 - start1);
-	printf("OpenSSL run time %f ms\n", costtime);
-	printf("OpenSSL results:\n");
-	//multisha1_gpu(input, ilen1, hash,n);
-	for (int i = 0; i < n; i++) {
-		for (int j = 0; j < 20; j++) {
-			printf("%02x", hash[i][j]);
-		}
-		printf("\n");
-	}
 	cudaEvent_t start, stop;
 	float costtime4 = 0.0;
 	cudaEventCreate(&start);
@@ -67,6 +50,40 @@ int main() {
 	cudaEventDestroy(start);
 	cudaEventDestroy(stop);
 	printf("GPU Result:\n");
+	for (int i = 0; i < n; i++) {
+		for (int j = 0; j < 20; j++) {
+			printf("%02x", hash[i][j]);
+		}
+		printf("\n");
+	}
+	clock_t start2, finish2;
+	float costtime2;
+	start2 = clock();
+	for (int i = 0; i < n; i++) {
+		sha1_cpu(input[i], ilen1[i], hash[i]);
+	}
+	finish2 = clock();
+	costtime2 = (float)(finish2 - start2);
+	printf("CPU run time %f ms\n", costtime2);
+	printf("CPU results:\n");
+	//multisha1_gpu(input, ilen1, hash,n);
+	for (int i = 0; i < n; i++) {
+		for (int j = 0; j < 20; j++) {
+			printf("%02x", hash[i][j]);
+		}
+		printf("\n");
+	}
+	clock_t start1, finish1;
+	float costtime;
+	start1 = clock();
+	for (int i = 0; i < n; i++) {
+		SHA1(input[i], ilen1[i], hash[i]);
+	}
+	finish1 = clock();
+	costtime = (float)(finish1 - start1);
+	printf("OpenSSL run time %f ms\n", costtime);
+	printf("OpenSSL results:\n");
+	//multisha1_gpu(input, ilen1, hash,n);
 	for (int i = 0; i < n; i++) {
 		for (int j = 0; j < 20; j++) {
 			printf("%02x", hash[i][j]);

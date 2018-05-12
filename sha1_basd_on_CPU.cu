@@ -1,3 +1,4 @@
+
 #include <string.h>
 #include <stdio.h>
 #include "Common1.h"
@@ -275,30 +276,39 @@ __device__ void sha1_cpu1(unsigned char *input, int ilen, unsigned char *output)
 	sha1_cpu_update(&ctx, input, ilen);
 	sha1_cpu_finish(&ctx, output);
 	memset(&ctx, 0, sizeof(sha1_gpu1_context));
+	//printf("666\n");
 }
-//void gpu_sha1(unsigned char *input, int ilen, unsigned char *output) {
-//	sha1_cpu1<<<1,1>>>(input, ilen, output);
-//}
 __global__ void multisha1_thread(unsigned char**input,int*ilen,unsigned char**output,int n) {
 	int i = threadIdx.x;
-	if (i < n) { sha1_cpu1(input[i], ilen[i], output[i]);}
+	if (i < n) { 	
+		sha1_cpu1(input[i], ilen[i], output[i]); 
+	}
 }
-void multisha1_gpu(unsigned char**input,int *ilen,unsigned char**output,int n) {
-	int *ilen1; 
-	size_t pitch; size_t size = sizeof(unsigned char)*512;
-	unsigned char**data,**hash;
-	cudaMalloc((void**)&ilen1, sizeof(int) * n);
+void multisha1_gpu(unsigned char**input, int *ilen, unsigned char**output, int n) {
+	int *ilen1; unsigned char**data, **hash;
+	cudaMalloc((void**)&ilen1, sizeof(int)*n); cudaMemcpy(ilen1, ilen, sizeof(int)*n, cudaMemcpyHostToDevice);
+	unsigned char**buffer_A, **buffer_B;
+	buffer_A = (unsigned char**)malloc(sizeof(unsigned char*)*n);
+	buffer_B = (unsigned char**)malloc(sizeof(unsigned char*)*n);
+	for (int i = 0; i < n; i++) {
+		cudaMalloc((void**)&buffer_A[i], sizeof(unsigned char) * 512);
+		cudaMalloc((void**)&buffer_B[i], sizeof(unsigned char) * 512);
+	}
+	cudaMalloc((void***)&data, sizeof(unsigned char*)*n);
+	cudaMalloc((void***)&hash, sizeof(unsigned char*)*n);
+	for (int i = 0; i < n; i++) {
+		cudaMemcpy(buffer_A[i], input[i], ilen[i] * sizeof(unsigned char), cudaMemcpyHostToDevice);
+	}
+	cudaMemcpy(data, buffer_A, sizeof(unsigned char*)*n, cudaMemcpyHostToDevice);
+	cudaMemcpy(hash, buffer_B, sizeof(unsigned char*)*n, cudaMemcpyHostToDevice);
 
-	cudaMallocPitch((void**)&data, &pitch, size, n);
-	cudaMemset2D(data, pitch, 0, size, n);
-	cudaMallocPitch((void**)&hash, &pitch, size, n);
-	cudaMemset2D(hash, pitch, 0, size, n);
-
-	cudaMemcpy2D(data, pitch, input, size, size, n, cudaMemcpyHostToDevice);
-	cudaMemcpy(ilen1, ilen, n*sizeof(int), cudaMemcpyHostToDevice);
-	multisha1_thread <<< 1, n >>> (data, ilen1, hash, n);
-	cudaMemcpy2D(output, size, hash, pitch, size, n, cudaMemcpyDeviceToHost);
-	cudaFree((void*)data);
-	cudaFree((void*)hash);
+	multisha1_thread << <1, n >> > (data, ilen1, hash, n);
+	cudaMemcpy(buffer_B, hash, sizeof(unsigned char*)*n, cudaMemcpyDeviceToHost);
+	for (int i = 0; i < n; i++) {
+		cudaMemcpy(output[i], buffer_B[i], sizeof(unsigned char) * 20, cudaMemcpyDeviceToHost);
+	}
 	cudaFree(ilen1);
+	//cudaMemcpy(output, hash, sizeof(unsigned char*)*n*64, cudaMemcpyDeviceToHost);
+	cudaFree(buffer_A); cudaFree(buffer_B); cudaFree(data); cudaFree(hash);
+
 }

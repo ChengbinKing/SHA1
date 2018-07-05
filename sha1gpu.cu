@@ -1,7 +1,7 @@
 #include"time.h"
 #include <string.h>
 #include <stdio.h>
-#include "Common.h"
+#include "Common1.h"
 #include"cuda.h"
 #include"device_launch_parameters.h"
 #include <iostream>

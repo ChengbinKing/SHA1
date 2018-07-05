@@ -1,342 +1,323 @@
-#include"cuda.h"
-#include "Common1.h"
-#include"device_launch_parameters.h"
-#include"stdio.h"
 #include"time.h"
-typedef struct {
-	unsigned long state[5];
-} sha1_gpu_context;
-typedef struct {
-	float malloctime;
-	float copytime;
-	float kerneltime;
-}time_cuda_collect;
-time_cuda_collect A1 = { 0,0,0};
-#define S(x,n) ((x << n) | ((x & 0xFFFFFFFF) >> (32 - n)))
-#define R(t) \
-	temp = extended[block_index + t -  3] ^ extended[block_index + t - 8] ^     \
-		   extended[block_index + t - 14] ^ extended[block_index + t - 16]; \
-	extended[block_index + t] = S(temp,1); \
-//Another methods
-__device__ inline unsigned long f1(unsigned long x, unsigned long y, unsigned long z) { return(z ^ (x&(y^z))); }// (x & y ) | ( ~x & z)
-__device__ inline unsigned long f2(unsigned long x, unsigned long y, unsigned long z) { return(x^y^z); }
-__device__ inline unsigned long f3(unsigned long x, unsigned long y, unsigned long z) { return((x&y)|(z&(x|y)));}
-__device__ inline unsigned long f4(unsigned long x, unsigned long y, unsigned long z) { return(x^y^z); }
-//
-__constant__ unsigned long C1 = 0x5A827999;
-__constant__ unsigned long C2 = 0x6Ed9EBA1;
-__constant__ unsigned long C3 = 0x8F1BBCDC;
-__constant__ unsigned long C4 = 0xCA62C1D6;
-__device__ unsigned long SST(unsigned long x, int n) { return((x << n)|((x & 0xFFFFFFFF)>>(32 - n))); }
-__device__ unsigned long p1(unsigned long a, unsigned long b, unsigned long c, unsigned long d, unsigned long x){ return(SST(a,5)+f1(b,c,d)+C1+x);  }
-__device__ unsigned long p2(unsigned long a, unsigned long b, unsigned long c, unsigned long d, unsigned long x){ return(SST(a,5)+f2(b,c,d)+C2+x);   }
-__device__ unsigned long p3(unsigned long a, unsigned long b, unsigned long c, unsigned long d, unsigned long x){ return(SST(a, 5) + f3(b, c, d) + C3 + x); }
-__device__ unsigned long p4(unsigned long a, unsigned long b, unsigned long c, unsigned long d, unsigned long x){ return(SST(a, 5) + f4(b, c, d) + C4 + x); }
-__device__ void sha1_gpu_process2(sha1_gpu_context *ctx, unsigned long W[80]) {
-	unsigned long A, B, C, D, E;
-	A = ctx->state[0];
-	B = ctx->state[1];
-	C = ctx->state[2];
-	D = ctx->state[3];
-	E = ctx->state[4];
+#include <string.h>
+#include <stdio.h>
+#include "Common.h"
+#include"cuda.h"
+#include"device_launch_parameters.h"
+#include <iostream>
+#include <fstream>
+#include<cuda_runtime.h>
+#include<openssl\bn.h>
+#include<openssl\sha.h>
+#include"malloc.h"
+#pragma comment(lib, "libeay32.lib")
+#pragma comment(lib, "ssleay32.lib")
+using namespace std;
+class sha1gpu {
+public:
+	unsigned char block[64];
+};
+class Hash {
+public:
+	unsigned char hash[20];
+};
+#define SHA1CircularShift(bits,word) \
+                ((((word) << (bits)) & 0xFFFFFFFF) | \
+                ((word) >> (32-(bits))))
 
-	for (int t = 0; t < 16; t++) {
-		if (5*t < 20) {
-			E = E + p1(A, B, C, D, W[0+5*t]); B = SST(B, 30);
-			D = D + p1(E, A, B, C, W[1+5*t]); A = SST(A, 30);
-			C = C + p1(D, E, A, B, W[2+5*t]); E = SST(E, 30);
-			B = B + p1(C, D, E, A, W[3+5*t]); D = SST(D, 30);
-			A = A + p1(B, C, D, E, W[4+5*t]); C = SST(C, 30);
-		}
-		if ((5*t < 40)&&(5*t>=20)) {
-			E = E + p2(A, B, C, D, W[0 + 5 * t]); B = SST(B, 30);
-			D = D + p2(E, A, B, C, W[1 + 5 * t]); A = SST(A, 30);
-			C = C + p2(D, E, A, B, W[2 + 5 * t]); E = SST(E, 30);
-			B = B + p2(C, D, E, A, W[3 + 5 * t]); D = SST(D, 30);
-			A = A + p2(B, C, D, E, W[4 + 5 * t]); C = SST(C, 30);
-		}
-		if ((5*t < 60)&&(5*t>=40)) {
-			E = E + p3(A, B, C, D, W[0 + 5 * t]); B = SST(B, 30);
-			D = D + p3(E, A, B, C, W[1 + 5 * t]); A = SST(A, 30);
-			C = C + p3(D, E, A, B, W[2 + 5 * t]); E = SST(E, 30);
-			B = B + p3(C, D, E, A, W[3 + 5 * t]); D = SST(D, 30);
-			A = A + p3(B, C, D, E, W[4 + 5 * t]); C = SST(C, 30);
-		}
-		if ((5*t < 80)&&(5*t>=60)) {
-			E = E + p4(A, B, C, D, W[0 + 5 * t]); B = SST(B, 30);
-			D = D + p4(E, A, B, C, W[1 + 5 * t]); A = SST(A, 30);
-			C = C + p4(D, E, A, B, W[2 + 5 * t]); E = SST(E, 30);
-			B = B + p4(C, D, E, A, W[3 + 5 * t]); D = SST(D, 30);
-			A = A + p4(B, C, D, E, W[4 + 5 * t]); C = SST(C, 30);
-		}
-	}
-	//printf("%x,%x,%x,%x,%x\n", ctx->state[0], ctx->state[1], ctx->state[2], ctx->state[3], ctx->state[4]);
-	ctx->state[0] += A;
-	ctx->state[1] += B;
-	ctx->state[2] += C;
-	ctx->state[3] += D;
-	ctx->state[4] += E;
-}
-__device__ void sha1_gpu_process(sha1_gpu_context *ctx, unsigned long W[80])
+typedef struct {
+	unsigned long total[2];     /* number of bytes processed  */
+	unsigned long state[5];     /* intermediate digest state  */
+	unsigned char buffer[64];   /* data block being processed */
+} sha1_gpu1_context;
+
+
+__constant__ static const unsigned char sha1_padding[64] =
 {
+	0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+};
 
-	__shared__ unsigned long A, B, C, D, E;
+
+/*
+* Prepare SHA-1 for execution.
+*/
+__device__ void sha1_cpu_starts(sha1_gpu1_context* ctx)
+{
+	ctx->total[0] = 0;
+	ctx->total[1] = 0;
+	ctx->state[0] = 0x67452301;
+	ctx->state[1] = 0xEFCDAB89;
+	ctx->state[2] = 0x98BADCFE;
+	ctx->state[3] = 0x10325476;
+	ctx->state[4] = 0xC3D2E1F0;
+}
+__device__ unsigned long K[] =
+{
+	0x5A827999,
+	0x6ED9EBA1,
+	0x8F1BBCDC,
+	0xCA62C1D6
+};
+__device__ static void sha1_cpu_upfoldprocess(sha1_gpu1_context *ctx, unsigned char data[64]) {
+	
+	int  t;                  /* Loop counter                 */
+	unsigned long temp;               /* Temporary word value         */
+	unsigned long W[80];              /* Word sequence                */
+	unsigned long A, B, C, D, E;      /* Word buffers                 */
 	A = ctx->state[0];
 	B = ctx->state[1];
 	C = ctx->state[2];
 	D = ctx->state[3];
 	E = ctx->state[4];
-	// 4 rounds calculation defination
-#define P(a,b,c,d,e,x)                                  \
-{                                                       \
-    e += S(a,5) + F(b,c,d) + K + x; b = S(b,30);        \
-}
-
-	//0~19 rounds corresponding function and data
-#define F(x,y,z) (z ^ (x & (y ^ z)))
-#define K 0x5A827999
-
-	P(A, B, C, D, E, W[0]);
-	P(E, A, B, C, D, W[1]);
-	P(D, E, A, B, C, W[2]);
-	P(C, D, E, A, B, W[3]);
-	P(B, C, D, E, A, W[4]);
-	P(A, B, C, D, E, W[5]);
-	P(E, A, B, C, D, W[6]);
-	P(D, E, A, B, C, W[7]);
-	P(C, D, E, A, B, W[8]);
-	P(B, C, D, E, A, W[9]);
-	P(A, B, C, D, E, W[10]);
-	P(E, A, B, C, D, W[11]);
-	P(D, E, A, B, C, W[12]);
-	P(C, D, E, A, B, W[13]);
-	P(B, C, D, E, A, W[14]);
-	P(A, B, C, D, E, W[15]);
-	P(E, A, B, C, D, W[16]);
-	P(D, E, A, B, C, W[17]);
-	P(C, D, E, A, B, W[18]);
-	P(B, C, D, E, A, W[19]);
-
-#undef K
-#undef F
-	//20~39 rounds corresponding function and data
-#define F(x,y,z) (x ^ y ^ z)
-#define K 0x6ED9EBA1
-
-	P(A, B, C, D, E, W[20]);
-	P(E, A, B, C, D, W[21]);
-	P(D, E, A, B, C, W[22]);
-	P(C, D, E, A, B, W[23]);
-	P(B, C, D, E, A, W[24]);
-	P(A, B, C, D, E, W[25]);
-	P(E, A, B, C, D, W[26]);
-	P(D, E, A, B, C, W[27]);
-	P(C, D, E, A, B, W[28]);
-	P(B, C, D, E, A, W[29]);
-	P(A, B, C, D, E, W[30]);
-	P(E, A, B, C, D, W[31]);
-	P(D, E, A, B, C, W[32]);
-	P(C, D, E, A, B, W[33]);
-	P(B, C, D, E, A, W[34]);
-	P(A, B, C, D, E, W[35]);
-	P(E, A, B, C, D, W[36]);
-	P(D, E, A, B, C, W[37]);
-	P(C, D, E, A, B, W[38]);
-	P(B, C, D, E, A, W[39]);
-
-#undef K
-#undef F
-	//40~59 rounds corresponding function and data
-#define F(x,y,z) ((x & y) | (z & (x | y)))
-#define K 0x8F1BBCDC
-
-	P(A, B, C, D, E, W[40]);
-	P(E, A, B, C, D, W[41]);
-	P(D, E, A, B, C, W[42]);
-	P(C, D, E, A, B, W[43]);
-	P(B, C, D, E, A, W[44]);
-	P(A, B, C, D, E, W[45]);
-	P(E, A, B, C, D, W[46]);
-	P(D, E, A, B, C, W[47]);
-	P(C, D, E, A, B, W[48]);
-	P(B, C, D, E, A, W[49]);
-	P(A, B, C, D, E, W[50]);
-	P(E, A, B, C, D, W[51]);
-	P(D, E, A, B, C, W[52]);
-	P(C, D, E, A, B, W[53]);
-	P(B, C, D, E, A, W[54]);
-	P(A, B, C, D, E, W[55]);
-	P(E, A, B, C, D, W[56]);
-	P(D, E, A, B, C, W[57]);
-	P(C, D, E, A, B, W[58]);
-	P(B, C, D, E, A, W[59]);
-
-#undef K
-#undef F
-	//60~79 rounds function 
-#define F(x,y,z) (x ^ y ^ z)
-#define K 0xCA62C1D6
-
-	P(A, B, C, D, E, W[60]);
-	P(E, A, B, C, D, W[61]);
-	P(D, E, A, B, C, W[62]);
-	P(C, D, E, A, B, W[63]);
-	P(B, C, D, E, A, W[64]);
-	P(A, B, C, D, E, W[65]);
-	P(E, A, B, C, D, W[66]);
-	P(D, E, A, B, C, W[67]);
-	P(C, D, E, A, B, W[68]);
-	P(B, C, D, E, A, W[69]);
-	P(A, B, C, D, E, W[70]);
-	P(E, A, B, C, D, W[71]);
-	P(D, E, A, B, C, W[72]);
-	P(C, D, E, A, B, W[73]);
-	P(B, C, D, E, A, W[74]);
-	P(A, B, C, D, E, W[75]);
-	P(E, A, B, C, D, W[76]);
-	P(D, E, A, B, C, W[77]);
-	P(C, D, E, A, B, W[78]);
-	P(B, C, D, E, A, W[79]);
-
-#undef K
-#undef F
-	// Final operation:Add this chunk's hash to result so far
+	unsigned long L1, L2;
+	for (t = 1; t < 20; t = t + 2)
+	{
+	L1 = ((B&C)|((~B)&D))+E;
+	L2 = ((A & SHA1CircularShift(30, B)) | ((~A) & C)) + D;
+	E = C;
+	D = SHA1CircularShift(30, B);
+	C = SHA1CircularShift(30, A);
+	if (t <= 15) {
+		GET_UINT32_BE(W[t - 1], data, (t - 1) * 4);
+		GET_UINT32_BE(W[t], data, t * 4);
+	}
+	else {
+		W[t - 1] = SHA1CircularShift(1, W[t - 4] ^ W[t - 9] ^ W[t - 15] ^ W[t - 17]);
+		W[t] = SHA1CircularShift(1, W[t-3] ^ W[t-8] ^ W[t-14] ^ W[t-16]);
+	}
+	B = SHA1CircularShift(5, A) + L1+ W[t - 1] + K[0];
+	temp = SHA1CircularShift(5, B) + L2+ W[t] + K[0];
+	temp &= 0xFFFFFFFF;
+	A = temp;
+	}
+		
+//(B ^ C ^ D) F2
+	for (t = 21; t < 40; t = t + 2)
+	{
+	L1 = (B^C^D) + E;
+	L2 = ((A^SHA1CircularShift(30, B)) ^ C) + D;
+	E = C;
+	D = SHA1CircularShift(30, B);
+	C = SHA1CircularShift(30, A);
+	W[t - 1] = SHA1CircularShift(1, W[t - 4] ^ W[t - 9] ^ W[t - 15] ^ W[t - 17]);
+	W[t] = SHA1CircularShift(1, W[t - 3] ^ W[t - 8] ^ W[t - 14] ^ W[t - 16]);
+	B = SHA1CircularShift(5, A) + L1+ W[t - 1] + K[1];
+	temp = SHA1CircularShift(5, B) + L2 + W[t] + K[1];
+	temp &= 0xFFFFFFFF;
+	A = temp;
+	}
+		
+//((B & C) | (B & D) | (C & D)) F3
+	for (t = 41; t < 60; t = t + 2)
+	{
+	L1 = ((B & C) | (B & D) | (C & D)) + E;
+	L2 = ((temp&SHA1CircularShift(30, B)) | (A&C) | (SHA1CircularShift(30, B)&C)) + D;
+	E = C;
+	D = SHA1CircularShift(30, B);
+	C = SHA1CircularShift(30, A);//bcd
+	W[t - 1] = SHA1CircularShift(1, W[t - 4] ^ W[t - 9] ^ W[t - 15] ^ W[t - 17]);
+	W[t] = SHA1CircularShift(1, W[t - 3] ^ W[t - 8] ^ W[t - 14] ^ W[t - 16]);
+	B = SHA1CircularShift(5, A) + L1 + W[t - 1] + K[2];
+	temp = SHA1CircularShift(5, B) + L2+ W[t] + K[2];
+	temp &= 0xFFFFFFFF;
+	A = temp;
+	}
+		
+//(B ^ C ^ D)
+	for (t = 61; t < 80; t = t + 2)
+	{
+	L1 = (B^C^D) + E;
+	L2 = ((A^SHA1CircularShift(30, B)) ^ C) + D;
+	E = C;
+	D = SHA1CircularShift(30, B);
+	C = SHA1CircularShift(30, A);//bcd
+	W[t - 1] = SHA1CircularShift(1, W[t - 4] ^ W[t - 9] ^ W[t - 15] ^ W[t - 17]);
+	W[t] = SHA1CircularShift(1, W[t - 3] ^ W[t - 8] ^ W[t - 14] ^ W[t - 16]);
+	B = SHA1CircularShift(5, A) + L1 + W[t - 1] + K[3];
+	temp = SHA1CircularShift(5, B) + L2+ W[t] + K[3];
+	temp &= 0xFFFFFFFF;
+	A = temp;
+	}
+	//End
 	ctx->state[0] += A;
 	ctx->state[1] += B;
 	ctx->state[2] += C;
 	ctx->state[3] += D;
 	ctx->state[4] += E;
-
+}
+/*
+* Splits input message into blocks and processes them one by one. Also
+* checks how many 0 need to be padded and processes the last, padded, block.
+*/
+__device__ void sha1_cpu_update(sha1_gpu1_context *ctx, unsigned char *input, int ilen)
+{
+	int fill;
+	unsigned long left;
+	if (ilen <= 0)
+		return;
+	left = ctx->total[0] & 0x3F;
+	fill = 64 - left;
+	ctx->total[0] += ilen;
+	ctx->total[0] &= 0xFFFFFFFF;
+	if (ctx->total[0] < (unsigned long)ilen)
+		ctx->total[1]++;
+	if (left && ilen >= fill) {
+		memcpy((void *)(ctx->buffer + left), (void *)input, fill);
+		sha1_cpu_upfoldprocess(ctx, ctx->buffer);
+		input += fill;
+		ilen -= fill;
+		left = 0;
+	}
+	while (ilen >= 64) {
+		sha1_cpu_upfoldprocess(ctx, input);
+		input += 64;
+		ilen -= 64;
+	}
+	if (ilen > 0) {
+		memcpy((void *)(ctx->buffer + left), (void *)input, ilen);
+	}
 }
 
 
 /*
-* Process extended block in GPU,analysis: there are no existing parallel methods for 
-* the inputs are closely related to the output
+* Process padded block and return hash to user.
 */
-
-
-void __global__  sha1_kernel_global(unsigned char *data, sha1_gpu_context *ctx, int total_threads, unsigned long *extended)
+__device__ void sha1_cpu_finish(sha1_gpu1_context *ctx, unsigned char *output)
 {
-	int thread_index = threadIdx.x + blockDim.x * blockIdx.x;
-	int e_index = thread_index * 80;
-	int block_index = thread_index * 64;//512 byte is a block
-	unsigned long temp, t;
-	if (thread_index > total_threads - 1)
-		return;
+	unsigned long last, padn;
+	unsigned long high, low;
+	unsigned char msglen[8];
 
-	/*
-	* load 32 to 80 blocks
-	*/
-	GET_UINT32_BE(extended[e_index], data + block_index, 0);
-	GET_UINT32_BE(extended[e_index + 1], data + block_index, 4);
-	GET_UINT32_BE(extended[e_index + 2], data + block_index, 8);
-	GET_UINT32_BE(extended[e_index + 3], data + block_index, 12);
-	GET_UINT32_BE(extended[e_index + 4], data + block_index, 16);
-	GET_UINT32_BE(extended[e_index + 5], data + block_index, 20);
-	GET_UINT32_BE(extended[e_index + 6], data + block_index, 24);
-	GET_UINT32_BE(extended[e_index + 7], data + block_index, 28);
-	GET_UINT32_BE(extended[e_index + 8], data + block_index, 32);
-	GET_UINT32_BE(extended[e_index + 9], data + block_index, 36);
-	GET_UINT32_BE(extended[e_index + 10], data + block_index, 40);
-	GET_UINT32_BE(extended[e_index + 11], data + block_index, 44);
-	GET_UINT32_BE(extended[e_index + 12], data + block_index, 48);
-	GET_UINT32_BE(extended[e_index + 13], data + block_index, 52);
-	GET_UINT32_BE(extended[e_index + 14], data + block_index, 56);
-	GET_UINT32_BE(extended[e_index + 15], data + block_index, 60);
 
-	for (t = 16; t < 80; t++) {
-		temp = extended[e_index + t - 3] ^ extended[e_index + t - 8] ^
-			extended[e_index + t - 14] ^ extended[e_index + t - 16];
-		extended[e_index + t] = S(temp, 1);
-	}
-	/* Wait for the last thread and compute intermediate hash values of extended blocks */
-	__syncthreads();
-	if (thread_index == total_threads - 1) {
-		for (t = 0; t < total_threads; t++)
-			sha1_gpu_process(ctx, (unsigned long*)&extended[t * 80]);
+	high = (ctx->total[0] >> 29) | (ctx->total[1] << 3);
+	low = (ctx->total[0] << 3);
 
-	}
+	PUT_UINT32_BE(high, msglen, 0);
+	PUT_UINT32_BE(low, msglen, 4);
+
+	last = ctx->total[0] & 0x3F;
+	padn = (last < 56) ? (56 - last) : (120 - last);
+
+	sha1_cpu_update(ctx, (unsigned char *)sha1_padding, padn);
+	sha1_cpu_update(ctx, msglen, 8);
+
+	PUT_UINT32_BE(ctx->state[0], output, 0);
+	PUT_UINT32_BE(ctx->state[1], output, 4);
+	PUT_UINT32_BE(ctx->state[2], output, 8);
+	PUT_UINT32_BE(ctx->state[3], output, 12);
+	PUT_UINT32_BE(ctx->state[4], output, 16);
 }
 
-
-void sha1_gpu_global1(unsigned char *input, unsigned long size, unsigned char *output, int proc)
-{
-	int total_threads;
-	int blocks_per_grid;
-	int threads_per_block;
-	int pad, size_be;
-	int total_datablocks;
-	int i, k;
-	unsigned char *d_message;
-	unsigned long *d_extended;
-	sha1_gpu_context ctx, *d_ctx;
-	//Initialize the parameter
-	ctx.state[0] = 0x67452301;
-	ctx.state[1] = 0xEFCDAB89;
-	ctx.state[2] = 0x98BADCFE;
-	ctx.state[3] = 0x10325476;
-	ctx.state[4] = 0xC3D2E1F0;
-
-	pad = padding_256(size);//To pad depended on size
-	threads_per_block = proc;
-	blocks_per_grid = 1;
-	total_datablocks = (size + pad + 8) / 64; //64;
-	//printf("total_datablocks is %d\n", total_datablocks);
-	//Limit the number of total_threads
-	if (total_datablocks > threads_per_block)
-		total_threads = threads_per_block;//In this program is 1
-	else
-		total_threads = total_datablocks;
-	//printf("total_threads is %d\n", total_threads);
-	size_be = LETOBE32(size * 8);
-	/* allocate enough memory*/
-	clock_t start1, finish1;
-	start1 = clock();
-	cudaMalloc((void**)&d_extended, proc * 80 * sizeof(unsigned long));
-	cudaMalloc((void**)&d_message, size + pad + 8);
-	cudaMalloc((void**)&d_ctx, sizeof(sha1_gpu_context));
-	finish1 = clock();
-	A1.malloctime = (finish1 - start1) / CLOCKS_PER_SEC;
-	clock_t start2, finish2;
-	start2 = clock();
-	cudaMemcpy(d_ctx, &ctx, sizeof(sha1_gpu_context), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_message, input, size, cudaMemcpyHostToDevice);
-	cudaMemset(d_message + size, 0x80, 1);
-	cudaMemset(d_message + size + 1, 0, pad + 7);
-	cudaMemcpy(d_message + size + pad + 4, &size_be, 4, cudaMemcpyHostToDevice);
-	finish2 = clock();
-	A1.copytime = (finish2 - start2) / CLOCKS_PER_SEC;
-	/*
-	* run the algorithm
-	*/
-	i = 0;
-    k = total_datablocks / total_threads;
-	clock_t start3, finish3;
-	start3 = clock();
-	if (k - 1 > 0) {
-		for (i = 0; i < k; i++) {
-			sha1_kernel_global << <total_datablocks, proc >> >(d_message + threads_per_block * i * 64,
-				d_ctx, threads_per_block, d_extended);
+/*
+* Execute SHA-1
+*/
+__device__ void sha1_cpu1(unsigned char *input, int ilen, unsigned char *output) {
+	sha1_gpu1_context ctx;
+	sha1_cpu_starts(&ctx);
+	sha1_cpu_update(&ctx, input, ilen);
+	sha1_cpu_finish(&ctx, output);
+	memset(&ctx, 0, sizeof(sha1_gpu1_context));
+}
+__global__ void multisha1_thread(sha1gpu input[], int ilen, Hash output[], int n) {
+	int i = blockIdx.x*blockDim.x + threadIdx.x;
+	int i1 = blockDim.x*gridDim.x;
+	for (int t = i; t < n; t = t + i1) {
+		sha1_cpu1(input[t].block, ilen, output[t].hash);
+	}
+}
+int main() {
+	cudaSetDevice(0);
+	cudaDeviceProp prop;
+	cudaGetDeviceProperties(&prop, 0);
+	int num_sm = prop.multiProcessorCount;
+	printf("The num_sm of target is:%d\n", num_sm);
+	dim3 ThreadperBlock(1024);
+	dim3 BlockperGrid(num_sm);
+	int length;
+	cout << "INPUT THE SIZE" << endl;
+	scanf("%d", &length);
+	FILE*fp = fopen("1.txt", "w");
+	BIGNUM*A = BN_new();
+	for (int w = 0; w < 5; w++) {
+		BN_rand(A, 256 * length, 1, 0);
+		char*A1 = BN_bn2hex(A);
+		fprintf(fp, "%s", A1);
+	}
+	cout << "Random file completed!" << endl;
+	fclose(fp);
+	int datablock = 5 * length;
+	sha1gpu*sha1array;
+	sha1array = new sha1gpu[datablock]; 
+	printf("Please set the blocksize:\n");
+	int blocksize; scanf("%d",&blocksize);
+	char *input1=new char[blocksize+1];
+	ifstream ifs;
+	ifs.open("1.txt", ios::binary);
+	if (!ifs) {
+		cerr << "Error!" << endl;
+		exit(1);
+	}
+	for (int i = 0; i < datablock; i++) {
+		ifs.read(input1, blocksize); input1[blocksize] = '\0';
+		for (int j = 0; j < blocksize; j++) {
+			sha1array[i].block[j] = (unsigned char)input1[j];
 		}
 	}
-	threads_per_block = total_datablocks - (i * total_threads);//remaining block
-	//printf("The real threads_per_block is %d\n", threads_per_block);//total_datablocks
-	sha1_kernel_global << <total_datablocks, proc >> >(d_message + total_threads * i * 64, 
-		d_ctx, threads_per_block, d_extended);
-
-	finish3 = clock();
-	A1.kerneltime = (finish3 - start3) / CLOCKS_PER_SEC;
-	//copy data form deivce to Host
-	cudaMemcpy(&ctx, d_ctx, sizeof(sha1_gpu_context), cudaMemcpyDeviceToHost);
-	//output the hash
-	PUT_UINT32_BE(ctx.state[0], output, 0);
-	PUT_UINT32_BE(ctx.state[1], output, 4);
-	PUT_UINT32_BE(ctx.state[2], output, 8);
-	PUT_UINT32_BE(ctx.state[3], output, 12);
-	PUT_UINT32_BE(ctx.state[4], output, 16);
-	cudaFree(d_message);
-	cudaFree(d_ctx);
-	cudaFree(d_extended);
-	printf("malloc process needs %f seconds,copy process needs %f seconds,kernel process needs %f seconds\n", A1.malloctime, A1.copytime, A1.kerneltime);
+	sha1gpu*INCUDA; Hash*hash1, *hash2;
+	hash1 = new Hash[datablock];
+	cudaMalloc((void**)&INCUDA, datablock * sizeof(class sha1gpu));
+	cudaMemcpy(INCUDA, sha1array, datablock * sizeof(class sha1gpu), cudaMemcpyHostToDevice);
+	cudaMalloc((void**)&hash2, datablock * sizeof(class Hash));
+	cudaMemcpy(hash2, hash1, sizeof(class Hash)*datablock, cudaMemcpyHostToDevice);
+	int allthread = datablock;
+	cudaEvent_t start1;
+	cudaEventCreate(&start1);
+	cudaEvent_t stop1;
+	cudaEventCreate(&stop1);
+	cudaEventRecord(start1, NULL);
+	multisha1_thread << <BlockperGrid, ThreadperBlock >> >(INCUDA, blocksize, hash2, allthread);
+	cudaEventRecord(stop1, NULL);
+	cudaEventSynchronize(stop1);
+	float msecTotal1 = 0.0f, total;
+	cudaEventElapsedTime(&msecTotal1, start1, stop1);
+	total = msecTotal1 / 1000;
+	cout << "GPU Runtime：" << total << "seconds" << endl;
+	long r = 1 << 23; 
+	FILE* fp11 = NULL;
+	int nFileLen = 0;
+	fp11 = fopen("1.txt", "rb");
+	if (fp11 == NULL)
+	{
+		cout << "can't open file" << endl;
+		return 0;
+	}
+	fseek(fp11, 0, SEEK_END);  
+	nFileLen = ftell(fp11); 
+	cout << "The Bytes of file is: " << nFileLen << endl;
+	fclose(fp11);
+	cout << "Throught：" << nFileLen *8/ total / r /blocksize<< " Gbps" << endl;
+	cudaMemcpy(hash1, hash2, sizeof(class Hash)*datablock, cudaMemcpyDeviceToHost);
+	FILE*fp1 = fopen("hash.txt", "w");
+	for (int i = 0; i < datablock; i++) {
+		for (int j = 0; j < 20; j++) {
+			fprintf(fp1, "%02x", hash1[i].hash[j]);
+		}
+		fprintf(fp1, "\n");
+	}
+	unsigned char hashcpu[20];
+	clock_t start, finsh;
+	start = clock();
+	for (int i = 0; i < datablock; i++) {
+		SHA(sha1array[i].block, blocksize, hashcpu);
+	}
+	finsh = clock();
+	float cputime = (float)(finsh - start) / 1000;
+	cout << "OpenSSL execute " << cputime << "second" << endl;
+	cudaFree(hash2); 
+	cudaFree(INCUDA);
+	BN_free(A);
+	return 1;
 }
